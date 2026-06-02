@@ -7,6 +7,12 @@ services:
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: ENABLE_LIVE_INGESTION
-        value: "false"
+        value: "true"
+      - key: TRANSLINK_VEHICLE_POSITIONS_URL
+        value: https://gtfsrt.api.translink.com.au/api/realtime/SEQ/VehiclePositions
+      - key: TRANSLINK_TRIP_UPDATES_URL
+        value: https://gtfsrt.api.translink.com.au/api/realtime/SEQ/TripUpdates
+      - key: TRANSLINK_SERVICE_ALERTS_URL
+        value: https://gtfsrt.api.translink.com.au/api/realtime/SEQ/Alerts
       - key: CORS_ORIGINS
         value: https://your-vercel-app.vercel.app

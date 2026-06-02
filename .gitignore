@@ -4,5 +4,6 @@ dist/
 *.log
 .test-tmp/
 backend/data/
+backend/.venv/
 __pycache__/
 *.pyc

@@ -2,7 +2,7 @@
 
 A resume-ready Software/Cloud portfolio project for Brisbane: a React + FastAPI dashboard that turns TransLink GTFS-Realtime data into live vehicle tracking, stop arrivals, service alerts and route reliability analytics.
 
-The frontend includes mock fallback data, so the project is demoable even before live TransLink feed URLs are configured.
+The backend is configured for TransLink SEQ GTFS-Realtime feeds by default. The frontend still includes mock fallback data, so the project remains demoable if the API is offline or a feed request fails.
 
 ## Features
 
@@ -11,7 +11,7 @@ The frontend includes mock fallback data, so the project is demoable even before
 - Simplified live vehicle map with delay markers.
 - Stop arrival cards and current service alerts.
 - Seven-day route reliability chart backed by normalized historical data.
-- FastAPI backend with GTFS-RT parser, ingestion worker, local SQLite storage and cloud deployment config.
+- FastAPI backend with live GTFS-RT parser, ingestion worker, local SQLite storage and cloud deployment config.
 - CI workflow for frontend build and backend tests.
 
 ## Tech Stack
@@ -42,15 +42,26 @@ uvicorn app.main:app --reload
 
 The API opens at `http://127.0.0.1:8000`.
 
+## Live Data
+
+The default backend settings poll these public TransLink SEQ GTFS-RT feeds every 60 seconds:
+
+- `https://gtfsrt.api.translink.com.au/api/realtime/SEQ/VehiclePositions`
+- `https://gtfsrt.api.translink.com.au/api/realtime/SEQ/TripUpdates`
+- `https://gtfsrt.api.translink.com.au/api/realtime/SEQ/Alerts`
+
+TransLink publishes these as protobuf GTFS-Realtime feeds. No username/password is required.
+
 ## Environment
 
-Copy `.env.example` and configure these values when live feeds are available:
+Copy `.env.example` if you want to override these values:
 
 - `VITE_API_BASE_URL`
 - `ENABLE_LIVE_INGESTION`
 - `TRANSLINK_VEHICLE_POSITIONS_URL`
 - `TRANSLINK_TRIP_UPDATES_URL`
 - `TRANSLINK_SERVICE_ALERTS_URL`
+- `INGESTION_INTERVAL_SECONDS`
 - `CORS_ORIGINS`
 
 ## API Endpoints

@@ -37,6 +37,7 @@ class IngestionService:
             return
 
         with self.database.connect() as connection:
+            self.database.ensure_realtime_routes(connection, _route_ids(parsed))
             self.database.upsert_vehicle_snapshots(connection, parsed.vehicles)
             self.database.upsert_trip_updates(connection, parsed.trip_updates)
             self.database.upsert_service_alerts(connection, parsed.alerts)
@@ -55,3 +56,15 @@ class IngestionService:
 def _download(url: str) -> bytes:
     with urlopen(url, timeout=15) as response:
         return response.read()
+
+
+def _route_ids(parsed: ParsedFeed) -> set[str]:
+    vehicle_routes = {row[1] for row in parsed.vehicles}
+    trip_routes = {row[0] for row in parsed.trip_updates}
+    alert_routes = {
+        route_id
+        for row in parsed.alerts
+        for route_id in row[4].split(",")
+        if route_id
+    }
+    return vehicle_routes | trip_routes | alert_routes

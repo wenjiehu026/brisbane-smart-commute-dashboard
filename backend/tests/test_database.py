@@ -21,6 +21,31 @@ class DatabaseTest(unittest.TestCase):
         self.assertEqual(reliability["route_id"], "66")
         self.assertGreater(reliability["observation_count"], 0)
 
+    def test_realtime_routes_are_inserted_when_unknown(self) -> None:
+        database = Database(":memory:")
+        with database.connect() as connection:
+            database.ensure_realtime_routes(connection, {"REALTIME-1"})
+            database.upsert_vehicle_snapshots(
+                connection,
+                [
+                    (
+                        "vehicle-1",
+                        "REALTIME-1",
+                        "trip-1",
+                        -27.47,
+                        153.02,
+                        None,
+                        None,
+                        "2026-06-02T09:00:00+00:00",
+                        45,
+                    )
+                ],
+            )
+
+        routes = database.routes()
+
+        self.assertTrue(any(route["route_id"] == "REALTIME-1" for route in routes))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -25,10 +25,10 @@ uvicorn app.main:app --reload
 ## Environment
 
 - `BRISCOMMUTE_DB_PATH`: local SQLite path. Defaults to `backend/data/commute.db`.
-- `ENABLE_LIVE_INGESTION`: set to `true` to start the polling worker.
-- `TRANSLINK_VEHICLE_POSITIONS_URL`: GTFS-RT vehicle positions feed URL.
-- `TRANSLINK_TRIP_UPDATES_URL`: GTFS-RT trip updates feed URL.
-- `TRANSLINK_SERVICE_ALERTS_URL`: GTFS-RT alerts feed URL.
+- `ENABLE_LIVE_INGESTION`: defaults to `true` and starts the polling worker.
+- `TRANSLINK_VEHICLE_POSITIONS_URL`: defaults to `https://gtfsrt.api.translink.com.au/api/realtime/SEQ/VehiclePositions`.
+- `TRANSLINK_TRIP_UPDATES_URL`: defaults to `https://gtfsrt.api.translink.com.au/api/realtime/SEQ/TripUpdates`.
+- `TRANSLINK_SERVICE_ALERTS_URL`: defaults to `https://gtfsrt.api.translink.com.au/api/realtime/SEQ/Alerts`.
 - `INGESTION_INTERVAL_SECONDS`: polling interval. Defaults to `60`.
 - `CORS_ORIGINS`: comma-separated frontend origins.
 

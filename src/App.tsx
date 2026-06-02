@@ -55,7 +55,7 @@ function App() {
   const [arrivals, setArrivals] = useState<Arrival[]>([]);
   const [alerts, setAlerts] = useState<ServiceAlert[]>([]);
   const [reliability, setReliability] = useState<Reliability | null>(null);
-  const [selectedRouteId, setSelectedRouteId] = useState("66");
+  const [selectedRouteId, setSelectedRouteId] = useState("");
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
 
@@ -74,7 +74,12 @@ function App() {
       setRoutes(routeResult);
       setAlerts(alertResult);
       setArrivals(arrivalResult);
-      setSelectedRouteId((current) => routeResult.some((route) => route.route_id === current) ? current : routeResult[0]?.route_id ?? "66");
+      setSelectedRouteId((current) => {
+        const currentRoute = routeResult.find((route) => route.route_id === current);
+        if (currentRoute && currentRoute.active_vehicle_count > 0) return current;
+        const bestLiveRoute = routeResult.find((route) => route.active_vehicle_count > 0);
+        return bestLiveRoute?.route_id ?? routeResult[0]?.route_id ?? "";
+      });
     }
 
     loadStaticData();
@@ -87,6 +92,7 @@ function App() {
     let active = true;
 
     async function loadRouteData() {
+      if (!selectedRouteId) return;
       setLoading(true);
       const [vehicleResult, reliabilityResult] = await Promise.all([
         getVehicles(selectedRouteId),

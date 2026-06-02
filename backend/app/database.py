@@ -117,6 +117,26 @@ class Database:
             self.upsert_service_alerts(connection, sample_data.ALERTS)
             self.rebuild_reliability(connection)
 
+    def ensure_realtime_routes(self, connection: sqlite3.Connection, route_ids: Iterable[str]) -> None:
+        rows = sorted({route_id for route_id in route_ids if route_id})
+        connection.executemany(
+            """
+            INSERT OR IGNORE INTO routes(route_id, route_short_name, route_long_name, mode)
+            VALUES (?, ?, ?, ?)
+            """,
+            (_route_label(route_id) for route_id in rows),
+        )
+        connection.execute(
+            """
+            UPDATE routes
+            SET
+              route_short_name = substr(route_id, 1, instr(route_id, '-') - 1),
+              route_long_name = 'TransLink route ' || substr(route_id, 1, instr(route_id, '-') - 1)
+            WHERE route_long_name LIKE 'TransLink route %'
+              AND instr(route_id, '-') > 0
+            """
+        )
+
     def upsert_vehicle_snapshots(self, connection: sqlite3.Connection, rows: Iterable[tuple]) -> None:
         connection.executemany(
             """
@@ -209,7 +229,7 @@ class Database:
                   ) recent ON recent.vehicle_id = v.vehicle_id AND recent.timestamp = v.timestamp
                 ) latest ON latest.route_id = r.route_id
                 GROUP BY r.route_id
-                ORDER BY r.route_short_name
+                ORDER BY active_vehicle_count DESC, r.route_short_name
                 """
             ).fetchall()
             return [dict(row) for row in rows]
@@ -244,6 +264,15 @@ class Database:
                 """,
                 (stop_id, stop_id),
             ).fetchall()
+            if not rows and stop_id:
+                rows = connection.execute(
+                    """
+                    SELECT stop_id, route_id, trip_id, stop_name, scheduled_time, predicted_time, delay_seconds
+                    FROM trip_updates
+                    ORDER BY predicted_time
+                    LIMIT 12
+                    """
+                ).fetchall()
             return [dict(row) for row in rows]
 
     def alerts(self) -> list[dict]:
@@ -293,3 +322,8 @@ class Database:
                 "observation_count": sum(day["observation_count"] for day in daily),
                 "daily": daily,
             }
+
+
+def _route_label(route_id: str) -> tuple[str, str, str, str]:
+    short_name = route_id.split("-", 1)[0]
+    return route_id, short_name, f"TransLink route {short_name}", "bus"
