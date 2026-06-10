@@ -34,6 +34,9 @@ const MAP_LANDMARKS = [
   { label: "South Bank", latitude: -27.481, longitude: 153.023 },
   { label: "Hamilton", latitude: -27.438, longitude: 153.07 },
 ];
+const STALE_VEHICLE_MINUTES = 10;
+
+type VehicleFilter = "all" | "delayed" | "very-late" | "fresh";
 
 function cx(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
@@ -91,6 +94,22 @@ function formatUpdatedAgo(value: string | null) {
   return `Updated ${hours} hr ago`;
 }
 
+function isVehicleStale(value: string | null) {
+  if (!value) return true;
+  const timestamp = new Date(value).getTime();
+  if (Number.isNaN(timestamp)) return true;
+  return Date.now() - timestamp > STALE_VEHICLE_MINUTES * 60 * 1000;
+}
+
+function alertMatchesRoute(alert: ServiceAlert, route: RouteSummary | undefined) {
+  if (!route) return true;
+  const routeNames = [route.route_id, route.route_short_name].map((value) => value.toLowerCase());
+  return alert.affected_routes.some((affectedRoute) => {
+    const normalized = affectedRoute.toLowerCase();
+    return routeNames.some((routeName) => normalized === routeName || normalized.includes(routeName));
+  });
+}
+
 function modeIcon(mode: RouteSummary["mode"]) {
   if (mode === "train") return <Train size={18} />;
   if (mode === "ferry") return <Ship size={18} />;
@@ -139,6 +158,7 @@ function App() {
   const [reliability, setReliability] = useState<Reliability | null>(null);
   const [selectedRouteId, setSelectedRouteId] = useState("");
   const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null);
+  const [vehicleFilter, setVehicleFilter] = useState<VehicleFilter>("all");
   const [query, setQuery] = useState("");
   const [noticeQuery, setNoticeQuery] = useState("");
   const [loading, setLoading] = useState(true);
@@ -214,6 +234,22 @@ function App() {
 
   const selectedRoute = routes.find((route) => route.route_id === selectedRouteId) ?? routes[0];
   const displayRoutes = useMemo(() => getDisplayRoutes(routes, query), [query, routes]);
+  const staleVehicleCount = useMemo(() => vehicles.filter((vehicle) => isVehicleStale(vehicle.timestamp)).length, [vehicles]);
+  const vehicleFilterOptions = useMemo(
+    () => [
+      { id: "all" as const, label: "All", count: vehicles.length },
+      { id: "delayed" as const, label: "Delayed", count: vehicles.filter((vehicle) => vehicle.delay_seconds > 30).length },
+      { id: "very-late" as const, label: "Very late", count: vehicles.filter((vehicle) => vehicle.delay_seconds > 300).length },
+      { id: "fresh" as const, label: "Fresh", count: vehicles.filter((vehicle) => !isVehicleStale(vehicle.timestamp)).length },
+    ],
+    [vehicles],
+  );
+  const filteredVehicles = useMemo(() => {
+    if (vehicleFilter === "delayed") return vehicles.filter((vehicle) => vehicle.delay_seconds > 30);
+    if (vehicleFilter === "very-late") return vehicles.filter((vehicle) => vehicle.delay_seconds > 300);
+    if (vehicleFilter === "fresh") return vehicles.filter((vehicle) => !isVehicleStale(vehicle.timestamp));
+    return vehicles;
+  }, [vehicleFilter, vehicles]);
   const networkScore = useMemo(() => {
     if (!routes.length) return 0;
     const averageDelay = routes.reduce((sum, route) => sum + route.average_delay_seconds, 0) / routes.length;
@@ -228,11 +264,26 @@ function App() {
     .map(([name]) => name);
   const filteredAlerts = useMemo(() => {
     const normalized = noticeQuery.trim().toLowerCase();
-    if (!normalized) return alerts;
-    return alerts.filter((alert) =>
-      [alert.category, alert.summary, alert.affected_routes.join(" ")].some((value) => value.toLowerCase().includes(normalized)),
+    const routeAlerts = alerts.filter((alert) => alertMatchesRoute(alert, selectedRoute));
+    const searchableAlerts = normalized ? alerts : routeAlerts;
+    return searchableAlerts.filter((alert) => {
+      if (!normalized) return true;
+      return [alert.category, alert.summary, alert.affected_routes.join(" ")].some((value) =>
+        value.toLowerCase().includes(normalized),
+      );
+    });
+  }, [alerts, noticeQuery, selectedRoute]);
+  const noticeScope = noticeQuery.trim()
+    ? "matching network notices"
+    : selectedRoute
+      ? `notices for ${selectedRoute.route_short_name}`
+      : "current route notices";
+
+  useEffect(() => {
+    setSelectedVehicleId((current) =>
+      current && filteredVehicles.some((vehicle) => vehicle.vehicle_id === current) ? current : null,
     );
-  }, [alerts, noticeQuery]);
+  }, [filteredVehicles]);
 
   return (
     <main className="app-shell">
@@ -314,27 +365,63 @@ function App() {
               <p className="eyebrow">Live operations</p>
               <h2>{selectedRoute?.route_long_name ?? "Route details"}</h2>
             </div>
-            <span className="refresh-pill"><RefreshCw size={15} /> {loading ? "Refreshing" : "30s refresh"}</span>
+            <div className="panel-actions">
+              <span className={cx("data-pill", sources.vehicles === "live" ? "live" : "demo", staleVehicleCount > 0 && "stale")}>
+                {sources.vehicles === "live"
+                  ? staleVehicleCount > 0
+                    ? `${staleVehicleCount} stale updates`
+                    : "Fresh live vehicles"
+                  : "Demo vehicle data"}
+              </span>
+              <span className="refresh-pill"><RefreshCw size={15} /> {loading ? "Refreshing" : "30s refresh"}</span>
+            </div>
+          </div>
+          <div className="operation-toolbar" aria-label="Vehicle status filters">
+            {vehicleFilterOptions.map((option) => (
+              <button
+                className={cx("filter-button", vehicleFilter === option.id && "selected")}
+                disabled={option.count === 0 && option.id !== "all"}
+                key={option.id}
+                onClick={() => setVehicleFilter(option.id)}
+                type="button"
+              >
+                {option.label}
+                <span>{option.count}</span>
+              </button>
+            ))}
           </div>
           <TransitMap
-            vehicles={vehicles}
+            vehicles={filteredVehicles}
             selectedVehicleId={selectedVehicleId}
             onSelectVehicle={setSelectedVehicleId}
           />
           <div className="vehicle-strip">
-            {vehicles.map((vehicle, index) => (
-              <button
-                className={cx("vehicle-chip", getDelaySeverity(vehicle.delay_seconds), vehicle.vehicle_id === selectedVehicleId && "selected")}
-                key={vehicle.vehicle_id}
-                onClick={() => setSelectedVehicleId(vehicle.vehicle_id)}
-              >
-                <Bus size={16} />
-                <span>{getVehicleLabel(index)}</span>
-                <strong>{formatDelay(vehicle.delay_seconds)}</strong>
-                <small>{formatUpdatedAgo(vehicle.timestamp)}</small>
-              </button>
-            ))}
+            {filteredVehicles.map((vehicle, index) => {
+              const vehicleIndex = vehicles.findIndex((candidate) => candidate.vehicle_id === vehicle.vehicle_id);
+              const labelIndex = vehicleIndex >= 0 ? vehicleIndex : index;
+              const stale = isVehicleStale(vehicle.timestamp);
+              return (
+                <button
+                  className={cx(
+                    "vehicle-chip",
+                    getDelaySeverity(vehicle.delay_seconds),
+                    stale && "stale",
+                    vehicle.vehicle_id === selectedVehicleId && "selected",
+                  )}
+                  key={vehicle.vehicle_id}
+                  onClick={() =>
+                    setSelectedVehicleId((current) => (current === vehicle.vehicle_id ? null : vehicle.vehicle_id))
+                  }
+                >
+                  <Bus size={16} />
+                  <span>{getVehicleLabel(labelIndex)}</span>
+                  <strong>{formatDelay(vehicle.delay_seconds)}</strong>
+                  <small>{formatUpdatedAgo(vehicle.timestamp)}{stale ? " · stale" : ""}</small>
+                </button>
+              );
+            })}
             {!vehicles.length && <p className="muted">No current vehicles for this route yet.</p>}
+            {vehicles.length > 0 && !filteredVehicles.length && <p className="muted">No vehicles match this filter.</p>}
           </div>
         </section>
 
@@ -388,7 +475,7 @@ function App() {
             />
           </label>
           <p className="notice-count">
-            Showing {Math.min(filteredAlerts.length, 6)} of {filteredAlerts.length} matching notices
+            Showing {Math.min(filteredAlerts.length, 6)} of {filteredAlerts.length} {noticeScope}
           </p>
           <div className="alert-list">
             {filteredAlerts.slice(0, 6).map((alert) => (
@@ -399,7 +486,13 @@ function App() {
                 {!alertsAreLive && <small>Source: demo fallback data, not an official TransLink alert.</small>}
               </article>
             ))}
-            {!filteredAlerts.length && <p className="muted">No notices match this search.</p>}
+            {!filteredAlerts.length && (
+              <p className="muted">
+                {noticeQuery.trim()
+                  ? "No notices match this search."
+                  : "No current notices are linked to this selected route. Use search to inspect wider network notices."}
+              </p>
+            )}
           </div>
         </section>
       </section>
@@ -516,9 +609,18 @@ function TransitMap({
     return () => element.removeEventListener("wheel", handleWheel);
   }, [mapRef]);
 
+  useEffect(() => {
+    if (!selectedVehicleId) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onSelectVehicle(null);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [selectedVehicleId, onSelectVehicle]);
+
   return (
     <div
-      className={cx("transit-map", expanded && "expanded", isDragging && "dragging")}
+      className={cx("transit-map", expanded && "expanded", isDragging && "dragging", selectedVehicle && "detail-open")}
       ref={mapRef}
       aria-label="OpenStreetMap of Brisbane with live vehicle positions"
       onPointerDown={(event) => {
@@ -565,7 +667,7 @@ function TransitMap({
         <button
           className={cx("vehicle-marker", getDelaySeverity(vehicle.delay_seconds), vehicle.vehicle_id === selectedVehicleId && "selected")}
           key={vehicle.vehicle_id}
-          onClick={() => onSelectVehicle(vehicle.vehicle_id)}
+          onClick={() => onSelectVehicle(vehicle.vehicle_id === selectedVehicleId ? null : vehicle.vehicle_id)}
           style={{ left: position.left, top: position.top }}
           title={`${getVehicleLabel(index)}: ${formatDelay(vehicle.delay_seconds)}`}
         >
@@ -573,23 +675,23 @@ function TransitMap({
         </button>
       ))}
       <div className="map-controls" aria-label="Map controls">
-        <button onClick={() => setZoomOffset((value) => Math.min(3, value + 1))} title="Zoom in">
+        <button type="button" onClick={() => setZoomOffset((value) => Math.min(3, value + 1))} title="Zoom in">
           <Plus size={17} />
         </button>
-        <button onClick={() => setZoomOffset((value) => Math.max(-3, value - 1))} title="Zoom out">
+        <button type="button" onClick={() => setZoomOffset((value) => Math.max(-3, value - 1))} title="Zoom out">
           <Minus size={17} />
         </button>
-        <button onClick={() => setExpanded((value) => !value)} title={expanded ? "Collapse map" : "Expand map"}>
+        <button type="button" onClick={() => setExpanded((value) => !value)} title={expanded ? "Collapse map" : "Expand map"}>
           {expanded ? <Minimize2 size={17} /> : <Maximize2 size={17} />}
         </button>
-        <button onClick={() => setPanOffset({ x: 0, y: 0 })} title="Recenter map">
+        <button type="button" onClick={() => setPanOffset({ x: 0, y: 0 })} title="Recenter map">
           <RefreshCw size={17} />
         </button>
       </div>
       {selectedVehicle && (
-        <aside className="vehicle-detail">
-          <button className="close-detail" onClick={() => onSelectVehicle(null)} aria-label="Close vehicle details">
-            <X size={15} />
+        <aside className="vehicle-detail" aria-label="Selected vehicle details">
+          <button type="button" className="close-detail" onClick={() => onSelectVehicle(null)} aria-label="Close vehicle details">
+            <X size={18} />
           </button>
           <p className="eyebrow">Vehicle details</p>
           <strong>{getVehicleLabel(selectedVehicleIndex >= 0 ? selectedVehicleIndex : 0)}</strong>
@@ -597,6 +699,7 @@ function TransitMap({
           <small>Route: {selectedVehicle.route_id}</small>
           <small>Trip: {selectedVehicle.trip_id || "Unknown"}</small>
           <small>Last update: {formatUpdatedAgo(selectedVehicle.timestamp)}</small>
+          <small>Data quality: {isVehicleStale(selectedVehicle.timestamp) ? "Stale, older than 10 minutes" : "Recently updated"}</small>
           <small>Position: {selectedVehicle.latitude.toFixed(5)}, {selectedVehicle.longitude.toFixed(5)}</small>
           <small>Speed: {selectedVehicle.speed ?? "Unavailable"}</small>
           <small>Bearing: {selectedVehicle.bearing ?? "Unavailable"}</small>

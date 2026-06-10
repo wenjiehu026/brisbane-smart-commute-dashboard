@@ -15,4 +15,4 @@ services:
       - key: TRANSLINK_SERVICE_ALERTS_URL
         value: https://gtfsrt.api.translink.com.au/api/realtime/SEQ/Alerts
       - key: CORS_ORIGINS
-        value: https://your-vercel-app.vercel.app
+        value: https://brisbane-smart-commute-dashboard.vercel.app

@@ -1,0 +1,10 @@
+backend/
+node_modules/
+dist/
+.vite/
+.test-tmp/
+.github/
+.git/
+.env
+.env.*
+*.log

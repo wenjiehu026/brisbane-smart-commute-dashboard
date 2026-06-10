@@ -293,6 +293,14 @@ p {
   margin-bottom: 14px;
 }
 
+.panel-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .panel-heading h2 {
   margin-bottom: 0;
   font-size: 1.35rem;
@@ -382,6 +390,76 @@ p {
   font-size: 0.88rem;
 }
 
+.data-pill {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  padding: 6px 10px;
+  border: 1px solid #d6e0da;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #466059;
+  font-size: 0.83rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.data-pill.live {
+  border-color: #b7ddd0;
+  background: #eef9f4;
+  color: #0f6d5a;
+}
+
+.data-pill.demo,
+.data-pill.stale {
+  border-color: #ead4a8;
+  background: #fff8e8;
+  color: #8b5a14;
+}
+
+.operation-toolbar {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: -2px 0 12px;
+}
+
+.filter-button {
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 10px;
+  border: 1px solid #d6e0da;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #405a52;
+  font-size: 0.86rem;
+  font-weight: 800;
+}
+
+.filter-button span {
+  min-width: 24px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: #edf4f1;
+  color: #0f6d5a;
+  text-align: center;
+}
+
+.filter-button.selected {
+  border-color: #0f6d5a;
+  background: #e9f5f1;
+  color: #0d4f43;
+  box-shadow: inset 0 0 0 1px #0f6d5a;
+}
+
+.filter-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
 .vehicle-chip {
   display: grid;
   grid-template-columns: auto auto auto;
@@ -400,11 +478,13 @@ p {
 .transit-map {
   min-height: 430px;
   position: relative;
+  isolation: isolate;
   overflow: hidden;
   border-radius: 8px;
   background: #dfe8e3;
   border: 1px solid #d6e0da;
   cursor: grab;
+  overscroll-behavior: contain;
   touch-action: none;
 }
 
@@ -482,6 +562,11 @@ p {
   box-shadow: 0 10px 24px rgba(12, 42, 35, 0.18);
 }
 
+.vehicle-chip.stale {
+  border-color: rgba(255, 255, 255, 0.66);
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.24);
+}
+
 .vehicle-chip.on-time small,
 .vehicle-chip.late small,
 .vehicle-chip.very-late small,
@@ -502,7 +587,7 @@ p {
 
 .map-controls {
   position: absolute;
-  z-index: 5;
+  z-index: 7;
   top: 10px;
   right: 10px;
   display: grid;
@@ -524,12 +609,14 @@ p {
 
 .vehicle-detail {
   position: absolute;
-  z-index: 5;
+  z-index: 8;
   left: 12px;
   bottom: 42px;
   width: min(360px, calc(100% - 24px));
+  max-height: calc(100% - 64px);
   display: grid;
   gap: 5px;
+  overflow: auto;
   padding: 14px;
   border: 1px solid #d6e0da;
   border-radius: 8px;
@@ -539,6 +626,10 @@ p {
 }
 
 .vehicle-detail strong {
+  overflow-wrap: anywhere;
+}
+
+.vehicle-detail small {
   overflow-wrap: anywhere;
 }
 
@@ -560,8 +651,9 @@ p {
   position: absolute;
   top: 8px;
   right: 8px;
-  width: 30px;
-  height: 30px;
+  z-index: 9;
+  width: 40px;
+  height: 40px;
   box-shadow: none;
 }
 
@@ -799,6 +891,10 @@ p {
   .metric-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .panel-heading {
+    align-items: flex-start;
+  }
 }
 
 @media (max-width: 720px) {
@@ -838,6 +934,22 @@ p {
     font-size: 0.8rem;
   }
 
+  .panel-heading,
+  .panel-actions {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .operation-toolbar {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 5px;
+  }
+
+  .filter-button {
+    white-space: nowrap;
+  }
+
   .arrival-row {
     grid-template-columns: auto minmax(0, 1fr);
   }
@@ -852,6 +964,38 @@ p {
 
   .transit-map.expanded {
     min-height: 540px;
+  }
+
+  .vehicle-detail {
+    left: 8px;
+    right: 8px;
+    bottom: 8px;
+    width: auto;
+    max-height: min(62%, 360px);
+    padding: 16px 58px 14px 14px;
+  }
+
+  .close-detail {
+    top: 10px;
+    right: 10px;
+    width: 44px;
+    height: 44px;
+  }
+
+  .transit-map.detail-open .map-attribution {
+    display: none;
+  }
+
+  .vehicle-strip {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 6px;
+    scroll-snap-type: x mandatory;
+  }
+
+  .vehicle-chip {
+    min-width: 178px;
+    scroll-snap-align: start;
   }
 
   .source-banner {
