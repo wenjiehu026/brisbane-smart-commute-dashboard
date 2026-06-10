@@ -244,7 +244,11 @@ p {
 
 .dashboard-grid {
   display: grid;
-  grid-template-columns: 330px minmax(0, 1.35fr) minmax(320px, 0.9fr);
+  grid-template-columns: 300px minmax(0, 1.25fr) minmax(320px, 0.9fr);
+  grid-template-areas:
+    "routes map map"
+    "routes analytics alerts"
+    "routes arrivals alerts";
   gap: 16px;
   align-items: start;
 }
@@ -260,6 +264,7 @@ p {
 }
 
 .route-panel {
+  grid-area: routes;
   position: sticky;
   top: 14px;
   max-height: calc(100vh - 28px);
@@ -267,7 +272,19 @@ p {
 }
 
 .map-panel {
-  grid-column: span 2;
+  grid-area: map;
+}
+
+.analytics-panel {
+  grid-area: analytics;
+}
+
+.arrival-panel {
+  grid-area: arrivals;
+}
+
+.alert-panel {
+  grid-area: alerts;
 }
 
 .panel-heading {
@@ -305,11 +322,17 @@ p {
   gap: 9px;
 }
 
+.route-count {
+  margin: -2px 0 10px;
+  color: #64766f;
+  font-size: 0.86rem;
+}
+
 .route-card {
   display: grid;
-  gap: 7px;
+  gap: 5px;
   width: 100%;
-  padding: 12px;
+  padding: 10px;
   border: 1px solid #dce6df;
   border-radius: 8px;
   background: #ffffff;
@@ -320,6 +343,10 @@ p {
 .route-card.selected {
   border-color: #0f6d5a;
   box-shadow: inset 0 0 0 1px #0f6d5a;
+}
+
+.route-card strong {
+  line-height: 1.25;
 }
 
 .mode-badge {
@@ -355,6 +382,21 @@ p {
   font-size: 0.88rem;
 }
 
+.vehicle-chip {
+  display: grid;
+  grid-template-columns: auto auto auto;
+  align-items: center;
+  gap: 6px 8px;
+  border: 1px solid rgba(27, 67, 57, 0.14);
+  text-align: left;
+}
+
+.vehicle-chip small {
+  grid-column: 2 / -1;
+  color: #64766f;
+  font-size: 0.76rem;
+}
+
 .transit-map {
   min-height: 430px;
   position: relative;
@@ -362,6 +404,12 @@ p {
   border-radius: 8px;
   background: #dfe8e3;
   border: 1px solid #d6e0da;
+  cursor: grab;
+  touch-action: none;
+}
+
+.transit-map.dragging {
+  cursor: grabbing;
 }
 
 .transit-map.expanded {
@@ -402,11 +450,49 @@ p {
   border-radius: 999px;
   color: #ffffff;
   background: #0f6d5a;
+  font-weight: 900;
   box-shadow: 0 10px 24px rgba(12, 42, 35, 0.24);
 }
 
-.vehicle-marker.late {
+.vehicle-marker.on-time,
+.vehicle-chip.on-time {
+  background: #0f6d5a;
+}
+
+.vehicle-marker.late,
+.vehicle-chip.late {
+  background: #b7791f;
+}
+
+.vehicle-marker.very-late,
+.vehicle-chip.very-late {
   background: #c14e34;
+}
+
+.vehicle-chip.on-time,
+.vehicle-chip.late,
+.vehicle-chip.very-late {
+  color: #ffffff;
+  border-color: transparent;
+}
+
+.vehicle-chip.selected {
+  outline: 3px solid rgba(24, 130, 103, 0.22);
+  outline-offset: 2px;
+  box-shadow: 0 10px 24px rgba(12, 42, 35, 0.18);
+}
+
+.vehicle-chip.on-time small,
+.vehicle-chip.late small,
+.vehicle-chip.very-late small,
+.vehicle-chip.on-time strong,
+.vehicle-chip.late strong,
+.vehicle-chip.very-late strong {
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.vehicle-marker.late {
+  background: #b7791f;
 }
 
 .vehicle-marker.selected {
@@ -456,9 +542,18 @@ p {
   overflow-wrap: anywhere;
 }
 
-.vehicle-detail span {
+.vehicle-detail span,
+.status-text {
   color: #0f6d5a;
   font-weight: 900;
+}
+
+.status-text.late {
+  color: #9b5f14;
+}
+
+.status-text.very-late {
+  color: #bd4d35;
 }
 
 .close-detail {
@@ -505,6 +600,12 @@ p {
 
 .vehicle-chip strong {
   color: #15241f;
+}
+
+.vehicle-chip.on-time strong,
+.vehicle-chip.late strong,
+.vehicle-chip.very-late strong {
+  color: rgba(255, 255, 255, 0.92);
 }
 
 .reliability-summary {
@@ -677,13 +778,22 @@ p {
     grid-template-columns: 1fr;
   }
 
+  .dashboard-grid {
+    grid-template-areas:
+      "routes"
+      "map"
+      "analytics"
+      "arrivals"
+      "alerts";
+  }
+
   .map-panel {
     grid-column: auto;
   }
 
   .route-panel {
     position: static;
-    max-height: none;
+    max-height: 360px;
   }
 
   .metric-grid {
@@ -704,6 +814,28 @@ p {
   .metric-grid,
   .reliability-summary {
     grid-template-columns: 1fr;
+  }
+
+  .route-panel {
+    max-height: none;
+    overflow: hidden;
+  }
+
+  .route-list {
+    display: flex;
+    gap: 10px;
+    overflow-x: auto;
+    padding-bottom: 6px;
+    scroll-snap-type: x mandatory;
+  }
+
+  .route-card {
+    min-width: 220px;
+    scroll-snap-align: start;
+  }
+
+  .route-card small {
+    font-size: 0.8rem;
   }
 
   .arrival-row {

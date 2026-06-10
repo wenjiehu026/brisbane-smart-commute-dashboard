@@ -71,6 +71,18 @@ CREATE TABLE IF NOT EXISTS ingestion_runs (
   status TEXT NOT NULL,
   message TEXT
 );
+
+CREATE INDEX IF NOT EXISTS idx_vehicle_snapshots_vehicle_time
+  ON vehicle_snapshots(vehicle_id, timestamp);
+
+CREATE INDEX IF NOT EXISTS idx_vehicle_snapshots_route_time
+  ON vehicle_snapshots(route_id, timestamp);
+
+CREATE INDEX IF NOT EXISTS idx_trip_updates_route_timestamp
+  ON trip_updates(route_id, timestamp);
+
+CREATE INDEX IF NOT EXISTS idx_trip_updates_stop_time
+  ON trip_updates(stop_id, predicted_time);
 """
 
 
@@ -228,39 +240,53 @@ class Database:
 
     def routes(self) -> list[dict]:
         with self.connect() as connection:
-            rows = connection.execute(
+            route_rows = connection.execute(
+                "SELECT route_id, route_short_name, route_long_name, mode FROM routes"
+            ).fetchall()
+            active_rows = connection.execute(
                 """
-                SELECT
-                  r.route_id,
-                  r.route_short_name,
-                  r.route_long_name,
-                  r.mode,
-                  COUNT(DISTINCT latest.vehicle_id) AS active_vehicle_count,
-                  COALESCE((
-                    SELECT AVG(tu.delay_seconds)
-                    FROM trip_updates tu
-                    WHERE tu.route_id = r.route_id
-                  ), 0) AS average_delay_seconds,
-                  (
-                    SELECT COUNT(*)
-                    FROM service_alerts a
-                    WHERE a.affected_routes LIKE '%' || r.route_id || '%'
-                  ) AS alert_count
-                FROM routes r
-                LEFT JOIN (
-                  SELECT v.*
-                  FROM vehicle_snapshots v
-                  JOIN (
-                    SELECT vehicle_id, MAX(timestamp) AS timestamp
-                    FROM vehicle_snapshots
-                    GROUP BY vehicle_id
-                  ) recent ON recent.vehicle_id = v.vehicle_id AND recent.timestamp = v.timestamp
-                ) latest ON latest.route_id = r.route_id
-                GROUP BY r.route_id
-                ORDER BY active_vehicle_count DESC, r.route_short_name
+                WITH recent AS (
+                  SELECT vehicle_id, MAX(timestamp) AS timestamp
+                  FROM vehicle_snapshots
+                  GROUP BY vehicle_id
+                )
+                SELECT v.route_id, COUNT(DISTINCT v.vehicle_id) AS active_vehicle_count
+                FROM vehicle_snapshots v
+                JOIN recent ON recent.vehicle_id = v.vehicle_id AND recent.timestamp = v.timestamp
+                GROUP BY v.route_id
                 """
             ).fetchall()
-            return [dict(row) for row in rows]
+            delay_rows = connection.execute(
+                """
+                SELECT route_id, AVG(delay_seconds) AS average_delay_seconds
+                FROM trip_updates
+                GROUP BY route_id
+                """
+            ).fetchall()
+            alert_rows = connection.execute("SELECT affected_routes FROM service_alerts").fetchall()
+
+            active_counts = {row["route_id"]: row["active_vehicle_count"] for row in active_rows}
+            average_delays = {row["route_id"]: row["average_delay_seconds"] for row in delay_rows}
+            alert_counts: dict[str, int] = {}
+            for row in alert_rows:
+                for route_id in row["affected_routes"].split(","):
+                    if route_id:
+                        alert_counts[route_id] = alert_counts.get(route_id, 0) + 1
+
+            routes = [
+                {
+                    "route_id": row["route_id"],
+                    "route_short_name": row["route_short_name"],
+                    "route_long_name": row["route_long_name"],
+                    "mode": row["mode"],
+                    "active_vehicle_count": active_counts.get(row["route_id"], 0),
+                    "average_delay_seconds": average_delays.get(row["route_id"], 0),
+                    "alert_count": alert_counts.get(row["route_id"], 0),
+                }
+                for row in route_rows
+            ]
+            routes.sort(key=lambda route: (-route["active_vehicle_count"], route["route_short_name"]))
+            return routes
 
     def vehicles_for_route(self, route_id: str) -> list[dict]:
         with self.connect() as connection:

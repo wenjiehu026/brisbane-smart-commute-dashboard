@@ -9,7 +9,6 @@ import {
   Database,
   Gauge,
   Info,
-  MapPin,
   Maximize2,
   Minimize2,
   Minus,
@@ -62,16 +61,73 @@ function formatDate(value: string | null) {
 }
 
 function formatAffectedRoutes(routes: string[]) {
-  if (!routes.length) return "Routes: network-wide";
-  const visibleRoutes = routes.slice(0, 5).join(", ");
-  const remaining = routes.length - 5;
-  return `Routes: ${visibleRoutes}${remaining > 0 ? ` + ${remaining} more` : ""}`;
+  if (!routes.length) return "Network-wide notice";
+  const visibleRoutes = routes.slice(0, 3).join(", ");
+  const remaining = routes.length - 3;
+  return remaining > 0
+    ? `${routes.length} affected services · includes ${visibleRoutes}`
+    : `Affected services: ${visibleRoutes}`;
+}
+
+function getDelaySeverity(seconds: number) {
+  if (seconds > 300) return "very-late";
+  if (seconds > 30) return "late";
+  return "on-time";
+}
+
+function getVehicleLabel(index: number) {
+  return `Vehicle ${index + 1}`;
+}
+
+function formatUpdatedAgo(value: string | null) {
+  if (!value) return "Updated time unknown";
+  const timestamp = new Date(value).getTime();
+  if (Number.isNaN(timestamp)) return "Updated time unknown";
+  const seconds = Math.max(0, Math.round((Date.now() - timestamp) / 1000));
+  if (seconds < 60) return "Updated just now";
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `Updated ${minutes} min ago`;
+  const hours = Math.round(minutes / 60);
+  return `Updated ${hours} hr ago`;
 }
 
 function modeIcon(mode: RouteSummary["mode"]) {
   if (mode === "train") return <Train size={18} />;
   if (mode === "ferry") return <Ship size={18} />;
   return <Bus size={18} />;
+}
+
+function getRouteGroupKey(route: RouteSummary) {
+  return `${route.mode}-${route.route_short_name}`;
+}
+
+function getDisplayRoutes(routes: RouteSummary[], query: string) {
+  const normalized = query.trim().toLowerCase();
+  const matchingRoutes = normalized
+    ? routes.filter((route) =>
+        [route.route_short_name, route.route_long_name, route.route_id, route.mode].some((value) =>
+          value.toLowerCase().includes(normalized),
+        ),
+      )
+    : routes.filter((route) => route.active_vehicle_count > 0);
+
+  const bestByRouteName = new Map<string, RouteSummary>();
+  for (const route of matchingRoutes) {
+    const key = getRouteGroupKey(route);
+    const current = bestByRouteName.get(key);
+    if (
+      !current ||
+      route.active_vehicle_count > current.active_vehicle_count ||
+      (route.active_vehicle_count === current.active_vehicle_count && route.alert_count > current.alert_count)
+    ) {
+      bestByRouteName.set(key, route);
+    }
+  }
+
+  return Array.from(bestByRouteName.values()).sort((a, b) => {
+    if (b.active_vehicle_count !== a.active_vehicle_count) return b.active_vehicle_count - a.active_vehicle_count;
+    return a.route_short_name.localeCompare(b.route_short_name, "en-AU", { numeric: true });
+  });
 }
 
 function App() {
@@ -82,6 +138,7 @@ function App() {
   const [alerts, setAlerts] = useState<ServiceAlert[]>([]);
   const [reliability, setReliability] = useState<Reliability | null>(null);
   const [selectedRouteId, setSelectedRouteId] = useState("");
+  const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [noticeQuery, setNoticeQuery] = useState("");
   const [loading, setLoading] = useState(true);
@@ -135,6 +192,9 @@ function App() {
       ]);
       if (!active) return;
       setVehicles(vehicleResult.data);
+      setSelectedVehicleId((current) =>
+        current && vehicleResult.data.some((vehicle) => vehicle.vehicle_id === current) ? current : null,
+      );
       setReliability(reliabilityResult.data);
       setSources((current) => ({
         ...current,
@@ -153,13 +213,7 @@ function App() {
   }, [selectedRouteId]);
 
   const selectedRoute = routes.find((route) => route.route_id === selectedRouteId) ?? routes[0];
-  const filteredRoutes = useMemo(() => {
-    const normalized = query.trim().toLowerCase();
-    if (!normalized) return routes;
-    return routes.filter((route) =>
-      [route.route_short_name, route.route_long_name, route.mode].some((value) => value.toLowerCase().includes(normalized)),
-    );
-  }, [query, routes]);
+  const displayRoutes = useMemo(() => getDisplayRoutes(routes, query), [query, routes]);
   const networkScore = useMemo(() => {
     if (!routes.length) return 0;
     const averageDelay = routes.reduce((sum, route) => sum + route.average_delay_seconds, 0) / routes.length;
@@ -234,8 +288,13 @@ function App() {
             <Search size={17} />
             <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search routes, e.g. 66 or ferry" />
           </label>
+          <p className="route-count">
+            {query.trim()
+              ? `Showing ${displayRoutes.length} matching route groups`
+              : `Showing ${displayRoutes.length} active route groups`}
+          </p>
           <div className="route-list">
-            {filteredRoutes.map((route) => (
+            {displayRoutes.map((route) => (
               <button
                 className={cx("route-card", route.route_id === selectedRouteId && "selected")}
                 key={route.route_id}
@@ -257,14 +316,23 @@ function App() {
             </div>
             <span className="refresh-pill"><RefreshCw size={15} /> {loading ? "Refreshing" : "30s refresh"}</span>
           </div>
-          <TransitMap vehicles={vehicles} />
+          <TransitMap
+            vehicles={vehicles}
+            selectedVehicleId={selectedVehicleId}
+            onSelectVehicle={setSelectedVehicleId}
+          />
           <div className="vehicle-strip">
-            {vehicles.map((vehicle) => (
-              <div className="vehicle-chip" key={vehicle.vehicle_id}>
+            {vehicles.map((vehicle, index) => (
+              <button
+                className={cx("vehicle-chip", getDelaySeverity(vehicle.delay_seconds), vehicle.vehicle_id === selectedVehicleId && "selected")}
+                key={vehicle.vehicle_id}
+                onClick={() => setSelectedVehicleId(vehicle.vehicle_id)}
+              >
                 <Bus size={16} />
-                <span>{vehicle.vehicle_id}</span>
+                <span>{getVehicleLabel(index)}</span>
                 <strong>{formatDelay(vehicle.delay_seconds)}</strong>
-              </div>
+                <small>{formatUpdatedAgo(vehicle.timestamp)}</small>
+              </button>
             ))}
             {!vehicles.length && <p className="muted">No current vehicles for this route yet.</p>}
           </div>
@@ -385,23 +453,39 @@ function MetricCard({
   );
 }
 
-function TransitMap({ vehicles }: { vehicles: Vehicle[] }) {
+function TransitMap({
+  vehicles,
+  selectedVehicleId,
+  onSelectVehicle,
+}: {
+  vehicles: Vehicle[];
+  selectedVehicleId: string | null;
+  onSelectVehicle: (vehicleId: string | null) => void;
+}) {
   const [mapRef, mapSize] = useElementSize<HTMLDivElement>();
   const [zoomOffset, setZoomOffset] = useState(0);
   const [expanded, setExpanded] = useState(false);
-  const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null);
+  const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const dragStartRef = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null);
   const validVehicles = vehicles.filter((vehicle) => Number.isFinite(vehicle.latitude) && Number.isFinite(vehicle.longitude));
   const selectedVehicle = validVehicles.find((vehicle) => vehicle.vehicle_id === selectedVehicleId) ?? null;
+  const selectedVehicleIndex = selectedVehicle ? validVehicles.findIndex((vehicle) => vehicle.vehicle_id === selectedVehicle.vehicle_id) : -1;
   const viewport = {
     width: mapSize.width || 860,
     height: mapSize.height || (expanded ? 680 : 430),
   };
   const center = getMapCenter(validVehicles);
   const zoom = Math.max(10, Math.min(16, getMapZoom(validVehicles) + zoomOffset));
-  const centerPixel = lonLatToWorldPixel(center.longitude, center.latitude, zoom);
+  const naturalCenterPixel = lonLatToWorldPixel(center.longitude, center.latitude, zoom);
+  const centerPixel = {
+    x: naturalCenterPixel.x - panOffset.x,
+    y: naturalCenterPixel.y - panOffset.y,
+  };
   const tiles = getVisibleTiles(centerPixel, viewport.width, viewport.height, zoom);
   const markers = validVehicles
-    .map((vehicle) => ({
+    .map((vehicle, index) => ({
+      index,
       vehicle,
       position: getViewportPosition(vehicle.longitude, vehicle.latitude, centerPixel, viewport.width, viewport.height, zoom),
     }))
@@ -411,8 +495,56 @@ function TransitMap({ vehicles }: { vehicles: Vehicle[] }) {
     position: getViewportPosition(landmark.longitude, landmark.latitude, centerPixel, viewport.width, viewport.height, zoom),
   })).filter(({ position }) => position.left >= -80 && position.left <= viewport.width + 80 && position.top >= -32 && position.top <= viewport.height + 32);
 
+  useEffect(() => {
+    if (!selectedVehicle) return;
+    const selectedPixel = lonLatToWorldPixel(selectedVehicle.longitude, selectedVehicle.latitude, zoom);
+    setPanOffset({
+      x: naturalCenterPixel.x - selectedPixel.x,
+      y: naturalCenterPixel.y - selectedPixel.y,
+    });
+  }, [selectedVehicle?.vehicle_id, selectedVehicle?.latitude, selectedVehicle?.longitude, zoom]);
+
+  useEffect(() => {
+    const element = mapRef.current;
+    if (!element) return;
+    const handleWheel = (event: WheelEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      setZoomOffset((value) => Math.max(-3, Math.min(3, value + (event.deltaY < 0 ? 1 : -1))));
+    };
+    element.addEventListener("wheel", handleWheel, { passive: false });
+    return () => element.removeEventListener("wheel", handleWheel);
+  }, [mapRef]);
+
   return (
-    <div className={cx("transit-map", expanded && "expanded")} ref={mapRef} aria-label="OpenStreetMap of Brisbane with live vehicle positions">
+    <div
+      className={cx("transit-map", expanded && "expanded", isDragging && "dragging")}
+      ref={mapRef}
+      aria-label="OpenStreetMap of Brisbane with live vehicle positions"
+      onPointerDown={(event) => {
+        if ((event.target as HTMLElement).closest("button, a")) return;
+        event.currentTarget.setPointerCapture(event.pointerId);
+        dragStartRef.current = { x: event.clientX, y: event.clientY, panX: panOffset.x, panY: panOffset.y };
+        setIsDragging(true);
+      }}
+      onPointerMove={(event) => {
+        if (!dragStartRef.current) return;
+        const nextX = dragStartRef.current.panX + event.clientX - dragStartRef.current.x;
+        const nextY = dragStartRef.current.panY + event.clientY - dragStartRef.current.y;
+        setPanOffset({ x: nextX, y: nextY });
+      }}
+      onPointerUp={(event) => {
+        if (dragStartRef.current) {
+          event.currentTarget.releasePointerCapture(event.pointerId);
+        }
+        dragStartRef.current = null;
+        setIsDragging(false);
+      }}
+      onPointerCancel={() => {
+        dragStartRef.current = null;
+        setIsDragging(false);
+      }}
+    >
       {tiles.map((tile) => (
         <img
           alt=""
@@ -429,15 +561,15 @@ function TransitMap({ vehicles }: { vehicles: Vehicle[] }) {
           {landmark.label}
         </span>
       ))}
-      {markers.map(({ vehicle, position }) => (
+      {markers.map(({ vehicle, index, position }) => (
         <button
-          className={cx("vehicle-marker", vehicle.delay_seconds > 180 && "late", vehicle.vehicle_id === selectedVehicleId && "selected")}
+          className={cx("vehicle-marker", getDelaySeverity(vehicle.delay_seconds), vehicle.vehicle_id === selectedVehicleId && "selected")}
           key={vehicle.vehicle_id}
-          onClick={() => setSelectedVehicleId(vehicle.vehicle_id)}
+          onClick={() => onSelectVehicle(vehicle.vehicle_id)}
           style={{ left: position.left, top: position.top }}
-          title={`${vehicle.vehicle_id}: ${formatDelay(vehicle.delay_seconds)}`}
+          title={`${getVehicleLabel(index)}: ${formatDelay(vehicle.delay_seconds)}`}
         >
-          <MapPin size={18} />
+          {index + 1}
         </button>
       ))}
       <div className="map-controls" aria-label="Map controls">
@@ -450,21 +582,26 @@ function TransitMap({ vehicles }: { vehicles: Vehicle[] }) {
         <button onClick={() => setExpanded((value) => !value)} title={expanded ? "Collapse map" : "Expand map"}>
           {expanded ? <Minimize2 size={17} /> : <Maximize2 size={17} />}
         </button>
+        <button onClick={() => setPanOffset({ x: 0, y: 0 })} title="Recenter map">
+          <RefreshCw size={17} />
+        </button>
       </div>
       {selectedVehicle && (
         <aside className="vehicle-detail">
-          <button className="close-detail" onClick={() => setSelectedVehicleId(null)} aria-label="Close vehicle details">
+          <button className="close-detail" onClick={() => onSelectVehicle(null)} aria-label="Close vehicle details">
             <X size={15} />
           </button>
           <p className="eyebrow">Vehicle details</p>
-          <strong>{selectedVehicle.vehicle_id}</strong>
-          <span>{formatDelay(selectedVehicle.delay_seconds)}</span>
+          <strong>{getVehicleLabel(selectedVehicleIndex >= 0 ? selectedVehicleIndex : 0)}</strong>
+          <span className={cx("status-text", getDelaySeverity(selectedVehicle.delay_seconds))}>{formatDelay(selectedVehicle.delay_seconds)}</span>
           <small>Route: {selectedVehicle.route_id}</small>
           <small>Trip: {selectedVehicle.trip_id || "Unknown"}</small>
+          <small>Last update: {formatUpdatedAgo(selectedVehicle.timestamp)}</small>
           <small>Position: {selectedVehicle.latitude.toFixed(5)}, {selectedVehicle.longitude.toFixed(5)}</small>
           <small>Speed: {selectedVehicle.speed ?? "Unavailable"}</small>
           <small>Bearing: {selectedVehicle.bearing ?? "Unavailable"}</small>
-          <small>Updated: {formatDate(selectedVehicle.timestamp)}</small>
+          <small>Internal vehicle ID: {selectedVehicle.vehicle_id}</small>
+          <small>Timestamp: {formatDate(selectedVehicle.timestamp)}</small>
         </aside>
       )}
       {!validVehicles.length && <span className="map-empty">Waiting for live vehicle coordinates</span>}
