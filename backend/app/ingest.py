@@ -40,7 +40,8 @@ class IngestionService:
             self.database.ensure_realtime_routes(connection, _route_ids(parsed))
             self.database.upsert_vehicle_snapshots(connection, parsed.vehicles)
             self.database.upsert_trip_updates(connection, parsed.trip_updates)
-            self.database.upsert_service_alerts(connection, parsed.alerts)
+            if parsed.alerts:
+                self.database.replace_service_alerts(connection, parsed.alerts)
             self.database.rebuild_reliability(connection)
         self.database.record_ingestion("success", "GTFS-RT feeds ingested.")
 

@@ -3,15 +3,22 @@ import type { Arrival, Health, Reliability, RouteSummary, ServiceAlert, Vehicle 
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
 
-async function getJson<T>(path: string, fallback: T): Promise<T> {
+export type DataSource = "live" | "demo";
+
+export type ApiResult<T> = {
+  data: T;
+  source: DataSource;
+};
+
+async function getJson<T>(path: string, fallback: T): Promise<ApiResult<T>> {
   try {
     const response = await fetch(`${API_BASE_URL}${path}`, { signal: AbortSignal.timeout(3500) });
     if (!response.ok) {
       throw new Error(`API returned ${response.status}`);
     }
-    return (await response.json()) as T;
+    return { data: (await response.json()) as T, source: "live" };
   } catch {
-    return fallback;
+    return { data: fallback, source: "demo" };
   }
 }
 

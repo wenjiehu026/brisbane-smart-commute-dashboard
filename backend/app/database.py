@@ -93,6 +93,8 @@ class Database:
             return
         connection = sqlite3.connect(self.path)
         connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA journal_mode=WAL")
+        connection.execute("PRAGMA busy_timeout=5000")
         try:
             yield connection
             connection.commit()
@@ -167,14 +169,29 @@ class Database:
             rows,
         )
 
+    def replace_service_alerts(self, connection: sqlite3.Connection, rows: Iterable[tuple]) -> None:
+        connection.execute("DELETE FROM service_alerts")
+        self.upsert_service_alerts(connection, rows)
+
     def rebuild_reliability(self, connection: sqlite3.Connection) -> None:
         routes = connection.execute("SELECT route_id FROM routes").fetchall()
         today = date.today()
-        for route_index, route in enumerate(routes):
+        connection.execute("DELETE FROM route_reliability_daily")
+        for route in routes:
             for days_back in range(6, -1, -1):
                 day = today - timedelta(days=days_back)
-                base_delay = 55 + route_index * 34 + (6 - days_back) * 11
-                late_percentage = min(86, 18 + route_index * 9 + (6 - days_back) * 2)
+                stats = connection.execute(
+                    """
+                    SELECT
+                      COUNT(*) AS observation_count,
+                      COALESCE(AVG(delay_seconds), 0) AS average_delay_seconds,
+                      COALESCE(AVG(CASE WHEN delay_seconds > 180 THEN 100.0 ELSE 0.0 END), 0) AS late_percentage
+                    FROM trip_updates
+                    WHERE route_id = ?
+                      AND date(timestamp) = date(?)
+                    """,
+                    (route["route_id"], day.isoformat()),
+                ).fetchone()
                 alert_count = connection.execute(
                     "SELECT COUNT(*) FROM service_alerts WHERE affected_routes LIKE ?",
                     (f"%{route['route_id']}%",),
@@ -185,7 +202,14 @@ class Database:
                       route_id, date, average_delay_seconds, late_percentage, alert_count, observation_count
                     ) VALUES (?, ?, ?, ?, ?, ?)
                     """,
-                    (route["route_id"], day.isoformat(), base_delay, late_percentage, alert_count, 380 + days_back * 31),
+                    (
+                        route["route_id"],
+                        day.isoformat(),
+                        round(stats["average_delay_seconds"]),
+                        round(stats["late_percentage"]),
+                        alert_count,
+                        stats["observation_count"],
+                    ),
                 )
 
     def record_ingestion(self, status: str, message: str | None = None) -> None:
@@ -212,7 +236,11 @@ class Database:
                   r.route_long_name,
                   r.mode,
                   COUNT(DISTINCT latest.vehicle_id) AS active_vehicle_count,
-                  COALESCE(AVG(latest.delay_seconds), 0) AS average_delay_seconds,
+                  COALESCE((
+                    SELECT AVG(tu.delay_seconds)
+                    FROM trip_updates tu
+                    WHERE tu.route_id = r.route_id
+                  ), 0) AS average_delay_seconds,
                   (
                     SELECT COUNT(*)
                     FROM service_alerts a
